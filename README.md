@@ -1,3 +1,5 @@
+![Banner](banner.png)
+
 # misconfig-ConfigCommentAnalyzer
 Analyzes configuration files for potentially sensitive information or outdated comments that may reveal vulnerabilities or misunderstandings about the configuration. - Focused on Check for misconfigurations in configuration files or infrastructure definitions
 
