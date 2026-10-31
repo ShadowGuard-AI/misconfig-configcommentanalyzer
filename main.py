@@ -77,6 +77,9 @@ def analyze_file_content(filepath, filetype='auto'):
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()
 
+        if not content.strip():
+            return [f"Error: Empty file: {filepath}. Nothing was analyzed."]
+
         if filetype == 'auto':
             # Attempt to auto-detect filetype based on extension
             if filepath.lower().endswith(('.yaml', '.yml')):
@@ -86,6 +89,9 @@ def analyze_file_content(filepath, filetype='auto'):
             else:
                 logging.warning("Could not auto-detect file type.  Analyzing as plain text.")
                 return analyze_comments(filepath) # Default to comment analysis if type is unknown
+
+        # Comment analysis is the headline check, so it runs on parsed files too.
+        warnings.extend(analyze_comments(filepath))
 
         if filetype == 'yaml':
             try:
@@ -152,8 +158,13 @@ def find_secrets(filepath):
         with open(filepath, 'r', encoding='utf-8') as f:
             for i, line in enumerate(f):
                 # Basic regex for API keys (extend this!)
-                if re.search(r"(api_key|apikey|password|secret)\s*[:=]\s*[\"']?[a-zA-Z0-9_-]{20,}[\"']?", line, re.IGNORECASE):
-                    secrets_found.append(f"Potential secret found on line {i+1}: {line.strip()}")
+                # The optional quotes cover the JSON form, where a quote sits
+                # between the quoted key and the colon.
+                match = re.search(r"[\"']?(api_key|apikey|password|secret)[\"']?\s*[:=]\s*[\"']?[a-zA-Z0-9_-]{20,}[\"']?", line, re.IGNORECASE)
+                if match:
+                    # Report the location and the key name only. The matched
+                    # value is never printed.
+                    secrets_found.append(f"Potential secret found on line {i+1}: {match.group(1)}=<redacted>")
     except FileNotFoundError:
         logging.error(f"File not found: {filepath}")
         return ["Error: File not found."]
@@ -193,6 +204,9 @@ def main():
         print("Analysis Results:")
         for result in analysis_results:
             print(result)
+        # Any warning, secret, or error result is a finding, so the run
+        # exits 1 and a calling script can gate on it.
+        sys.exit(1)
     else:
         print("No issues found.")
 
