@@ -41,7 +41,17 @@ def analyze_comments(filepath):
         with open(filepath, 'r', encoding='utf-8') as f:
             for i, line in enumerate(f):
                 # Look for "TODO", "FIXME", "XXX" in comments
+                # I match the marker anywhere in the line, so a TODO inside a
+                # string value counts as a comment finding. I also keep this
+                # search case sensitive while the outdated search below ignores
+                # case, so a lowercase todo passes and a lowercase deprecated
+                # does not. That split is inherited, and I note it rather than
+                # pretend the two searches behave the same.
                 if re.search(r"(#|\/\/|\/\*)\s*(TODO|FIXME|XXX)", line):
+                    # The full line goes into the warning, stripped but otherwise as
+                    # written. A comment that itself quotes a credential is echoed
+                    # back in my output, unlike the secret finder below, which
+                    # redacts on purpose.
                     warnings.append(f"Warning: Potential TODO/FIXME/XXX found on line {i+1}: {line.strip()}")
 
                 # Look for common phrases indicating outdated comments
@@ -88,9 +98,18 @@ def analyze_file_content(filepath, filetype='auto'):
                 filetype = 'json'
             else:
                 logging.warning("Could not auto-detect file type.  Analyzing as plain text.")
+                # An unknown suffix gets comments only. The parsed checks below
+                # never run for that file, and the only trace is the warning in
+                # the log, so the printed results look thinner without saying
+                # why unless the reader also reads the log.
                 return analyze_comments(filepath) # Default to comment analysis if type is unknown
 
         # Comment analysis is the headline check, so it runs on parsed files too.
+        # This reopens and rereads the file I already hold in content.
+        # If the file changed between the two reads, the comment results
+        # and the parsed results can describe different versions of it.
+        # The error strings that function returns on failure also land
+        # in this same list, mixed in with genuine findings.
         warnings.extend(analyze_comments(filepath))
 
         if filetype == 'yaml':
@@ -98,6 +117,11 @@ def analyze_file_content(filepath, filetype='auto'):
                 data = yaml.safe_load(content)
                 # Yaml Lint check
                 try:
+                    # I run yamllint without a check flag and read the return code
+                    # myself, because lint output on stdout is a result I report
+                    # either way. A missing binary is the only quiet path, handled
+                    # in the except below; a failed lint with empty stdout still
+                    # appends a warning whose body is blank.
                     result = subprocess.run(['yamllint', filepath], capture_output=True, text=True)
                     if result.returncode != 0:
                         warnings.append(f"yamllint found issues:\n{result.stdout}")
@@ -160,6 +184,10 @@ def find_secrets(filepath):
                 # Basic regex for API keys (extend this!)
                 # The optional quotes cover the JSON form, where a quote sits
                 # between the quoted key and the colon.
+                # Twenty characters is my floor, and the allowed set excludes
+                # dots and plus signs, so a short password and a token in a
+                # format like a JWT both pass under this search. I am looking
+                # for long plain values next to a known key name, nothing more.
                 match = re.search(r"[\"']?(api_key|apikey|password|secret)[\"']?\s*[:=]\s*[\"']?[a-zA-Z0-9_-]{20,}[\"']?", line, re.IGNORECASE)
                 if match:
                     # Report the location and the key name only. The matched
